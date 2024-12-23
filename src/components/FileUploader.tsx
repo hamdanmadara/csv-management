@@ -1,3 +1,4 @@
+// src/component/FileUploader
 'use client';
 
 import { useCallback, useState } from 'react';
@@ -16,41 +17,54 @@ interface FileUploaderProps {
 interface UploadingFile {
   file: File;
   progress: UploadProgress;
-  fileId?: string; // Added fileId to track uploaded files
+  fileId?: string;
+  abortController: AbortController;
 }
 
 const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map((file) => ({
+    const newFiles:any = acceptedFiles.map((file) => ({
       file,
       progress: { progress: 0, status: 'uploading' as const },
+      abortController: new AbortController()
     }));
 
     setUploadingFiles((prev) => [...prev, ...newFiles]);
 
-    for (const { file } of newFiles) {
+    for (const uploadingFile of newFiles) {
       try {
-        // Create FormData
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', uploadingFile.file);
 
-        // Upload file
-        const response = await axios.post('/api/upload', formData, {
+        let uploadedFileId: string | undefined;
+
+        // First request to initiate upload and get file ID
+        const initResponse = await axios.post('/api/upload/init', {
+          filename: uploadingFile.file.name,
+          filesize: uploadingFile.file.size
+        });
+
+        uploadedFileId = initResponse.data.fileId;
+
+        // Upload file with abort signal
+        const response = await axios.post(`/api/upload/${uploadedFileId}`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
+          signal: uploadingFile.abortController.signal,
           onUploadProgress: (progressEvent) => {
             const percentCompleted = Math.round(
               (progressEvent.loaded * 100) / progressEvent.total!
             );
             setUploadingFiles((prev) =>
               prev.map((f) =>
-                f.file === file
+                f.file === uploadingFile.file
                   ? {
                       ...f,
                       progress: { progress: percentCompleted, status: 'uploading' },
+                      fileId: uploadedFileId
                     }
                   : f
               )
@@ -61,56 +75,82 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
         if (response.data.success) {
           setUploadingFiles((prev) =>
             prev.map((f) =>
-              f.file === file
+              f.file === uploadingFile.file
                 ? { 
                     ...f, 
                     progress: { progress: 100, status: 'completed' },
-                    fileId: response.data.fileId // Store the file ID from response
+                    fileId: uploadedFileId
                   }
                 : f
             )
           );
-          toast.success(`${file.name} uploaded successfully`);
+          toast.success(`${uploadingFile.file.name} uploaded successfully`);
           onUploadComplete();
         }
       } catch (error) {
-        console.error('Upload failed:', error);
-        setUploadingFiles((prev) =>
-          prev.map((f) =>
-            f.file === file
-              ? { ...f, progress: { progress: 0, status: 'failed' } }
-              : f
-          )
-        );
-        toast.error(`Failed to upload ${file.name}`);
+        if (axios.isCancel(error)) {
+          // If cancelled, attempt to clean up
+          try {
+            if (uploadingFile.fileId) {
+              await axios.delete(`/api/files/${uploadingFile.fileId}`);
+            }
+          } catch (cleanupError) {
+            console.error('Cleanup error:', cleanupError);
+          }
+          
+          setUploadingFiles((prev) =>
+            prev.filter((f) => f.file !== uploadingFile.file)
+          );
+          toast.success(`Upload cancelled for ${uploadingFile.file.name}`);
+        } else {
+          console.error('Upload failed:', error);
+          setUploadingFiles((prev) =>
+            prev.map((f) =>
+              f.file === uploadingFile.file
+                ? { ...f, progress: { progress: 0, status: 'failed' } }
+                : f
+            )
+          );
+          toast.error(`Failed to upload ${uploadingFile.file.name}`);
+        }
       }
     }
   }, [onUploadComplete]);
 
   const removeFile = async (uploadingFile: UploadingFile) => {
     try {
-      // If file was successfully uploaded (has fileId), delete it from server
+      if (uploadingFile.progress.status === 'uploading') {
+        // First abort the upload
+        uploadingFile.abortController.abort();
+        
+        // Then attempt to clean up on the server
+        if (uploadingFile.fileId) {
+          try {
+            await axios.delete(`/api/files/${uploadingFile.fileId}`);
+          } catch (cleanupError) {
+            console.error('Cleanup error:', cleanupError);
+          }
+        }
+        
+        setUploadingFiles((prev) =>
+          prev.filter((f) => f.file !== uploadingFile.file)
+        );
+        toast.success(`Cancelled upload: ${uploadingFile.file.name}`);
+        return;
+      }
+  
+      // Handle completed or failed uploads
       if (uploadingFile.fileId) {
         await axios.delete(`/api/files/${uploadingFile.fileId}`);
         toast.success(`${uploadingFile.file.name} deleted successfully`);
       }
-      
-      // Remove from UI regardless of server deletion
+  
       setUploadingFiles((prev) =>
         prev.filter((f) => f.file !== uploadingFile.file)
       );
     } catch (error) {
       console.error('Delete failed:', error);
       toast.error(`Failed to delete ${uploadingFile.file.name}`);
-      
-      // If deletion fails, mark the file as failed
-      setUploadingFiles((prev) =>
-        prev.map((f) =>
-          f.file === uploadingFile.file
-            ? { ...f, progress: { progress: 0, status: 'failed' } }
-            : f
-        )
-      );
     }
   };
 
@@ -140,40 +180,39 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
         </p>
       </div>
 
-      {uploadingFiles.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium">Uploading Files</h3>
-          <div className="space-y-2">
-            {uploadingFiles.map((uploadingFile) => (
-              <div
-                key={uploadingFile.file.name}
-                className="bg-white rounded-lg p-4 shadow-sm border"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-900 truncate max-w-[calc(100%-3rem)]">
-                    {uploadingFile.file.name}
-                  </span>
-                  <Button
-                    onClick={() => removeFile(uploadingFile)}
-                    variant="outline"
-                    size="sm"
-                    className="p-1 ml-2 flex-shrink-0"
-                    disabled={uploadingFile.progress.progress > 0 && uploadingFile.progress.progress < 100}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Progress {...uploadingFile.progress} />
-                {uploadingFile.progress.status === 'failed' && (
-                  <p className="mt-1 text-sm text-red-600">
-                    Upload failed. Click X to remove and try again.
-                  </p>
-                )}
-              </div>
-            ))}
+      {uploadingFiles.map((uploadingFile) => (
+        <div
+          key={uploadingFile.file.name}
+          className="bg-white rounded-lg p-4 shadow-sm border"
+        >
+          <div className="flex justify-between items-center mb-2">
+            <div className="flex flex-col flex-grow mr-4">
+              <span className="text-sm font-medium text-gray-900 truncate">
+                {uploadingFile.file.name}
+              </span>
+              <span className="text-xs text-gray-500">
+                {uploadingFile.progress.status === 'uploading' && 'Uploading...'}
+                {uploadingFile.progress.status === 'completed' && 'Upload complete'}
+                {uploadingFile.progress.status === 'failed' && 'Upload failed'}
+              </span>
+            </div>
+            <Button
+              onClick={() => removeFile(uploadingFile)}
+              variant="outline"
+              size="sm"
+              className="p-1 flex-shrink-0"
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
+          <Progress {...uploadingFile.progress} />
+          {uploadingFile.progress.status === 'failed' && (
+            <p className="mt-1 text-sm text-red-600">
+              Upload failed. Click X to remove and try again.
+            </p>
+          )}
         </div>
-      )}
+      ))}
     </div>
   );
 };

@@ -1,3 +1,4 @@
+// api/files/route
 import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import { File } from '@/lib/models/file';

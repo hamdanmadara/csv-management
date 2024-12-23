@@ -1,3 +1,4 @@
+// api/upload/route
 import { NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import connectDB from '@/lib/db';
@@ -11,14 +12,19 @@ const s3Client = new S3Client({
   },
 });
 
-// Static user ID (you can make this dynamic later)
 const USER_ID = '1234';
 
 export async function POST(request: Request) {
-  let fileDoc = null;
-  let s3Key = null;
+  let fileDoc: { _id: any; } | null = null;
+  let s3Key: string | null = null;
 
   try {
+    // Check if request is already cancelled
+    const aborted = request.signal.aborted;
+    if (aborted) {
+      throw new Error('Request cancelled');
+    }
+
     await connectDB();
 
     const formData = await request.formData();
@@ -31,50 +37,55 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate S3 key with user folder structure
     s3Key = `${USER_ID}/${Date.now()}-${file.name}`;
 
-    // Create MongoDB record first with uploading status
+    // Listen for request cancellation
+    request.signal.addEventListener('abort', async () => {
+      if (fileDoc) {
+        await File.findByIdAndDelete(fileDoc._id);
+      }
+      if (s3Key) {
+        try {
+          const deleteCommand = new DeleteObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME!,
+            Key: s3Key,
+          });
+          await s3Client.send(deleteCommand);
+        } catch (cleanupError) {
+          console.error('Cleanup error:', cleanupError);
+        }
+      }
+    });
+
+    // Upload to S3 first before creating DB record
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const uploadCommand = new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME!,
+      Key: s3Key,
+      Body: buffer,
+      ContentType: file.type,
+    });
+
+    await s3Client.send(uploadCommand);
+
+    // Create MongoDB record after successful S3 upload
     fileDoc = await File.create({
       filename: s3Key,
       originalName: file.name,
       size: file.size,
       s3Key,
       contentType: file.type,
-      status: 'uploading',
-      userId: USER_ID // Save userId in MongoDB too
+      status: 'completed',
+      userId: USER_ID
     });
 
-    try {
-      // Upload to S3
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      const uploadCommand = new PutObjectCommand({
-        Bucket: process.env.AWS_BUCKET_NAME!,
-        Key: s3Key, // This will now include the user folder
-        Body: buffer,
-        ContentType: file.type,
-      });
-
-      await s3Client.send(uploadCommand);
-
-      // Update status to completed
-      await File.findByIdAndUpdate(fileDoc._id, { status: 'completed' });
-
-      return NextResponse.json({
-        success: true,
-        fileId: fileDoc._id,
-        message: 'File uploaded successfully'
-      });
-
-    } catch (uploadError) {
-      // If S3 upload fails, clean up the DB record
-      if (fileDoc) {
-        await File.findByIdAndDelete(fileDoc._id);
-      }
-      throw uploadError;
-    }
+    return NextResponse.json({
+      success: true,
+      fileId: fileDoc?._id,
+      message: 'File uploaded successfully'
+    });
 
   } catch (error) {
     // Clean up any partial uploads
