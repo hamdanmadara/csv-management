@@ -29,6 +29,10 @@ const fileSchema = new mongoose.Schema({
   contentType: {
     type: String,
     required: true,
+  },
+  userId: {  // Add this field
+    type: String,
+    required: true,
   }
 });
 

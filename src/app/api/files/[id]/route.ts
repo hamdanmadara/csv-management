@@ -29,6 +29,7 @@ export async function GET(
       );
     }
 
+    // The s3Key already includes the user folder structure
     const command = new GetObjectCommand({
       Bucket: process.env.AWS_BUCKET_NAME!,
       Key: file.s3Key,
@@ -67,7 +68,7 @@ export async function DELETE(
       );
     }
 
-    // Delete from S3
+    // Delete from S3 (the s3Key includes the user folder)
     try {
       const deleteCommand = new DeleteObjectCommand({
         Bucket: process.env.AWS_BUCKET_NAME!,
@@ -76,7 +77,6 @@ export async function DELETE(
       await s3Client.send(deleteCommand);
     } catch (s3Error) {
       console.error('S3 deletion error:', s3Error);
-      // Continue with DB deletion even if S3 deletion fails
     }
 
     // Delete from database
