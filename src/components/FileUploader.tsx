@@ -1,4 +1,3 @@
-// src/component/FileUploader
 'use client';
 
 import { useCallback, useState } from 'react';
@@ -24,8 +23,108 @@ interface UploadingFile {
 const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
 
+  const uploadFileInChunks = async (file: File, uploadingFile: UploadingFile) => {
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let uploadedChunks = 0;
+
+    try {
+      // Initialize upload
+      const initResponse = await axios.post('/api/upload/init', {
+        filename: file.name,
+        filesize: file.size
+      });
+
+      const fileId = initResponse.data.fileId;
+      uploadingFile.fileId = fileId;
+
+      // Upload chunks
+      for (let partNumber = 1; partNumber <= totalChunks; partNumber++) {
+        // Check if upload has been cancelled
+        if (uploadingFile.abortController.signal.aborted) {
+          throw new axios.Cancel('Upload cancelled');
+        }
+
+        const start = (partNumber - 1) * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('partNumber', partNumber.toString());
+        formData.append('totalChunks', totalChunks.toString());
+
+        await axios.post(`/api/upload/${fileId}`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          signal: uploadingFile.abortController.signal,
+        });
+
+        uploadedChunks++;
+        const progress = Math.round((uploadedChunks / totalChunks) * 100);
+        
+        setUploadingFiles((prev) =>
+          prev.map((f) =>
+            f.file === file
+              ? {
+                  ...f,
+                  progress: { progress, status: 'uploading' },
+                  fileId
+                }
+              : f
+          )
+        );
+      }
+
+      // Upload completed successfully
+      setUploadingFiles((prev) =>
+        prev.map((f) =>
+          f.file === file
+            ? { 
+                ...f, 
+                progress: { progress: 100, status: 'completed' },
+                fileId
+              }
+            : f
+        )
+      );
+      
+      toast.success(`${file.name} uploaded successfully`);
+      onUploadComplete();
+
+    } catch (error) {
+      if (axios.isCancel(error)) {
+        // Handle cancelled upload
+        try {
+          if (uploadingFile.fileId) {
+            await axios.delete(`/api/files/${uploadingFile.fileId}`);
+          }
+        } catch (cleanupError) {
+          console.error('Cleanup error:', cleanupError);
+        }
+        
+        setUploadingFiles((prev) =>
+          prev.filter((f) => f.file !== file)
+        );
+        toast.success(`Upload cancelled for ${file.name}`);
+      } else {
+        // Handle other errors
+        console.error('Upload failed:', error);
+        setUploadingFiles((prev) =>
+          prev.map((f) =>
+            f.file === file
+              ? { ...f, progress: { progress: 0, status: 'failed' } }
+              : f
+          )
+        );
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
+  };
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    const newFiles:any = acceptedFiles.map((file) => ({
+    const newFiles = acceptedFiles.map((file) => ({
       file,
       progress: { progress: 0, status: 'uploading' as const },
       abortController: new AbortController()
@@ -33,97 +132,19 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
 
     setUploadingFiles((prev) => [...prev, ...newFiles]);
 
+    // Upload files sequentially
     for (const uploadingFile of newFiles) {
-      try {
-        const formData = new FormData();
-        formData.append('file', uploadingFile.file);
-
-        let uploadedFileId: string | undefined;
-
-        // First request to initiate upload and get file ID
-        const initResponse = await axios.post('/api/upload/init', {
-          filename: uploadingFile.file.name,
-          filesize: uploadingFile.file.size
-        });
-
-        uploadedFileId = initResponse.data.fileId;
-
-        // Upload file with abort signal
-        const response = await axios.post(`/api/upload/${uploadedFileId}`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-          signal: uploadingFile.abortController.signal,
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total!
-            );
-            setUploadingFiles((prev) =>
-              prev.map((f) =>
-                f.file === uploadingFile.file
-                  ? {
-                      ...f,
-                      progress: { progress: percentCompleted, status: 'uploading' },
-                      fileId: uploadedFileId
-                    }
-                  : f
-              )
-            );
-          },
-        });
-
-        if (response.data.success) {
-          setUploadingFiles((prev) =>
-            prev.map((f) =>
-              f.file === uploadingFile.file
-                ? { 
-                    ...f, 
-                    progress: { progress: 100, status: 'completed' },
-                    fileId: uploadedFileId
-                  }
-                : f
-            )
-          );
-          toast.success(`${uploadingFile.file.name} uploaded successfully`);
-          onUploadComplete();
-        }
-      } catch (error) {
-        if (axios.isCancel(error)) {
-          // If cancelled, attempt to clean up
-          try {
-            if (uploadingFile.fileId) {
-              await axios.delete(`/api/files/${uploadingFile.fileId}`);
-            }
-          } catch (cleanupError) {
-            console.error('Cleanup error:', cleanupError);
-          }
-          
-          setUploadingFiles((prev) =>
-            prev.filter((f) => f.file !== uploadingFile.file)
-          );
-          toast.success(`Upload cancelled for ${uploadingFile.file.name}`);
-        } else {
-          console.error('Upload failed:', error);
-          setUploadingFiles((prev) =>
-            prev.map((f) =>
-              f.file === uploadingFile.file
-                ? { ...f, progress: { progress: 0, status: 'failed' } }
-                : f
-            )
-          );
-          toast.error(`Failed to upload ${uploadingFile.file.name}`);
-        }
-      }
+      await uploadFileInChunks(uploadingFile.file, uploadingFile);
     }
   }, [onUploadComplete]);
 
   const removeFile = async (uploadingFile: UploadingFile) => {
     try {
       if (uploadingFile.progress.status === 'uploading') {
-        // First abort the upload
+        // Cancel ongoing upload
         uploadingFile.abortController.abort();
         
-        // Then attempt to clean up on the server
+        // Clean up on server if needed
         if (uploadingFile.fileId) {
           try {
             await axios.delete(`/api/files/${uploadingFile.fileId}`);

@@ -1,3 +1,5 @@
+// src/lib/models/files.ts
+
 import mongoose from 'mongoose';
 
 const fileSchema = new mongoose.Schema({
@@ -33,7 +35,15 @@ const fileSchema = new mongoose.Schema({
   userId: {  // Add this field
     type: String,
     required: true,
-  }
+  },
+  uploadId: {
+    type: String,
+    default: null
+  },
+  parts: [{
+    ETag: String,
+    PartNumber: Number
+  }],
 });
 
 export const File = mongoose.models.File || mongoose.model('File', fileSchema);
