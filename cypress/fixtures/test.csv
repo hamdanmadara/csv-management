@@ -1,0 +1,18 @@
+// cypress/fixtures/test.csv
+id,name,email
+1,John Doe,john@example.com
+2,Jane Smith,jane@example.com
+3,Bob Johnson,bob@example.com
+
+// cypress/fixtures/test1.csv
+id,name,email
+1,User One,user1@example.com
+2,User Two,user2@example.com
+
+// cypress/fixtures/test2.csv
+id,name,email
+1,Test User,test@example.com
+2,Demo User,demo@example.com
+
+// cypress/fixtures/invalid.txt
+This is not a CSV file.

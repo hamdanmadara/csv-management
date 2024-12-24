@@ -1,10 +1,19 @@
 {
-    "compilerOptions": {
-      "target": "es5",
-      "lib": ["es5", "dom"],
-      "types": ["cypress", "node", "@testing-library/cypress"],
-      "esModuleInterop": true,
-      "skipLibCheck": true
-    },
-    "include": ["**/*.ts"]
-  }
+  "compilerOptions": {
+    "target": "es5",
+    "lib": ["es5", "dom"],
+    "types": ["cypress", "node", "cypress-file-upload"],
+    "moduleResolution": "node",
+    "baseUrl": "../node_modules",
+    "esModuleInterop": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": false,
+    "allowJs": true,
+    "paths": {
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

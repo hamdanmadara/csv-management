@@ -184,9 +184,10 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
   });
 
   return (
-    <div className="space-y-4">
+    <div data-testid="file-list" className="space-y-4">
       <div
         {...getRootProps()}
+        data-testid="upload-area"
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
           ${
             isDragActive
@@ -211,13 +212,14 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
               <span className="text-sm font-medium text-gray-900 truncate">
                 {uploadingFile.file.name}
               </span>
-              <span className="text-xs text-gray-500">
+              <span data-testid="file-status" className="text-xs text-gray-500">
                 {uploadingFile.progress.status === 'uploading' && 'Uploading...'}
                 {uploadingFile.progress.status === 'completed' && 'Upload complete'}
                 {uploadingFile.progress.status === 'failed' && 'Upload failed'}
               </span>
             </div>
             <Button
+              data-testid="delete-button"
               onClick={() => removeFile(uploadingFile)}
               variant="outline"
               size="sm"
@@ -226,9 +228,9 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <Progress {...uploadingFile.progress} />
+          <Progress data-testid="progress-bar"  {...uploadingFile.progress} />
           {uploadingFile.progress.status === 'failed' && (
-            <p className="mt-1 text-sm text-red-600">
+            <p data-testid="error-message" className="mt-1 text-sm text-red-600">
               Upload failed. Click X to remove and try again.
             </p>
           )}

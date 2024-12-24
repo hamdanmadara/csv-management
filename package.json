@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "cypress": "cypress open",
+    "cypress:run": "cypress run",
+    "test": "start-server-and-test dev http://localhost:3000 cypress:run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.717.0",
