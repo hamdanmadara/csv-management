@@ -12,7 +12,7 @@ const s3Client = new S3Client({
   },
 });
 
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+// const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
 
 export async function POST(
   request: Request,
