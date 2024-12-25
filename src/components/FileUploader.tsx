@@ -144,7 +144,6 @@ const FileUploader = ({ onUploadComplete }: FileUploaderProps) => {
         // Cancel ongoing upload
         uploadingFile.abortController.abort();
         
-        // Clean up on server if needed
         if (uploadingFile.fileId) {
           try {
             await axios.delete(`/api/files/${uploadingFile.fileId}`);

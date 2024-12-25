@@ -30,7 +30,6 @@ export async function GET(
       );
     }
 
-    // The s3Key already includes the user folder structure
     const command = new GetObjectCommand({
       Bucket: process.env.AWS_BUCKET_NAME!,
       Key: file.s3Key,

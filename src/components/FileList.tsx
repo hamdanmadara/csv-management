@@ -75,7 +75,6 @@ const FileList = () => {
     );
   }
 
-  // In FileList.tsx, update the return statement
     return (
         <div className="grid grid-cols-1 gap-4 w-full">
         {files.map((file) => (

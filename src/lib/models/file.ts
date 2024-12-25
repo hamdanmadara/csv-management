@@ -32,7 +32,7 @@ const fileSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  userId: {  // Add this field
+  userId: {
     type: String,
     required: true,
   },
